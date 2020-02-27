@@ -64,8 +64,6 @@ int susi_load (void)
     if (!SusiIoTMemFree)
         goto susi_load_fail;
 
-    //SusiIoTMemFree_show();		// for debug
-
     fprintf (stderr, "load SusiIoT\n");
 
     return 1;
@@ -120,9 +118,7 @@ char* susi_get_capability (void)
             IotPFIDataJsonStr = strdup(cpbStr);
 #endif
 
-#if 0	// for now, not to use SusiIoTMemFree, it may cause crash
-            //SusiIoTMemFree_show();	// for debug
-
+#if 1   // Susi Free Mem
             if(SusiIoTMemFree != NULL)
             {
                 SusiIoTMemFree(cpbStr);
