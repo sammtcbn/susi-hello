@@ -3,6 +3,8 @@
 
 #ifdef WIN32
 #include <windows.h>
+#else
+#include <dlfcn.h>
 #endif
 
 #include "SusiIoT.h"
@@ -19,6 +21,10 @@ typedef int             (__stdcall *f_SusiIoTInitialize)();
 typedef int             (__stdcall *f_SusiIoTUninitialize)();
 typedef char*           (__stdcall *f_SusiIoTGetPFCapabilityString)();
 typedef SusiIoTStatus_t (__stdcall *f_SusiIoTMemFree)(void *address);
+
+#ifdef __linux__
+typedef void*           HINSTANCE
+#endif
 
 HINSTANCE hGetProcIDDLL;
 
@@ -44,7 +50,11 @@ int susi_load (void)
     int ret=0;
 
 // load library
+#ifdef WIN32
     hGetProcIDDLL = LoadLibrary(DEF_SUSIIOT_LIB_NAME);
+#else
+    hGetProcIDDLL = dlopen(DEF_SUSIIOT_LIB_NAME, RTLD_NOW);
+#endif
 
     if (!hGetProcIDDLL) {
         fprintf (stderr, "could not load the dynamic library\n");
