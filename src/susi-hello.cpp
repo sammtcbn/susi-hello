@@ -48,34 +48,40 @@ PSusiIoTGetPFCapabilityString pSusiIoTGetPFCapabilityString = NULL;
 PSusiIoTMemFree               pSusiIoTMemFree = NULL;
 
 
+#ifdef WIN32
+HINSTANCE OpenLib (const char* path)
+{
+    return LoadLibrary (path);
+}
+#else
 void* OpenLib (const char* path)
 {
-#ifdef _WINDOWS
-    return LoadLibrary (path);
-#else
     return dlopen (path, RTLD_LAZY);
-#endif
 }
+#endif
 
 
-int CloseLib (void *handle)
+#ifdef WIN32
+int CloseLib (HINSTANCE handle)
 {
-#ifdef _WINDOWS
     BOOL fFreeResult;
     fFreeResult = FreeLibrary (handle);
-    if(bRet == FALSE)
+    if(fFreeResult == FALSE)
         return -1;
     else
         return 0;
-#else
-    return dlclose (handle);
-#endif
 }
+#else
+int CloseLib (void *handle)
+{
+    return dlclose (handle);
+}
+#endif
 
 
 void* GetLibFnAddress (void *handle, const char *name)
 {
-#ifdef _WINDOWS
+#ifdef WIN32
     return (void*) GetProcAddress( (HMODULE) handle, name );
 #else
     return dlsym (handle, name);
