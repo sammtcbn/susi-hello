@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #ifdef WIN32
@@ -9,37 +10,85 @@
 
 #include "SusiIoT.h"
 
+#ifdef __linux__
+typedef int BOOL;
+#endif
+
 #ifdef WIN32
     #define DEF_SUSIIOT_LIB_NAME    "SusiIoT.dll"
 #else
     #define DEF_SUSIIOT_LIB_NAME    "libSusiIoT.so"
 #endif
 
-#define SUSI_HELLO_VER	"1.0.0"
+#define SUSI_HELLO_VER	"1.0.1"
 
-typedef int             (__stdcall *f_SusiIoTInitialize)();
-typedef int             (__stdcall *f_SusiIoTUninitialize)();
-typedef char*           (__stdcall *f_SusiIoTGetPFCapabilityString)();
-typedef SusiIoTStatus_t (__stdcall *f_SusiIoTMemFree)(void *address);
 
-#ifdef __linux__
-typedef void*           HINSTANCE
+#ifdef WIN32
+#define SUSI_IOT_API __stdcall
+#else
+#define SUSI_IOT_API
 #endif
 
-HINSTANCE hGetProcIDDLL;
 
-f_SusiIoTInitialize SusiIoTInitialize = NULL;
-f_SusiIoTUninitialize SusiIoTUninitialize = NULL;
-f_SusiIoTGetPFCapabilityString	SusiIoTGetPFCapabilityString = NULL;
-f_SusiIoTMemFree SusiIoTMemFree = NULL;
+typedef SusiIoTStatus_t (SUSI_IOT_API *PSusiIoTInitialize)();
+typedef SusiIoTStatus_t (SUSI_IOT_API *PSusiIoTUninitialize)();
+typedef const char *    (SUSI_IOT_API *PSusiIoTGetPFCapabilityString)();
+typedef SusiIoTStatus_t (SUSI_IOT_API *PSusiIoTMemFree)(void *address);
+
+#ifdef WIN32
+HINSTANCE hGetProcIDDLL;
+#else
+void* hGetProcIDDLL;
+#endif
+
+
+PSusiIoTInitialize            pSusiIoTInitialize = NULL;
+PSusiIoTUninitialize          pSusiIoTUninitialize = NULL;
+PSusiIoTGetPFCapabilityString pSusiIoTGetPFCapabilityString = NULL;
+PSusiIoTMemFree               pSusiIoTMemFree = NULL;
+
+
+void* OpenLib (const char* path)
+{
+#ifdef _WINDOWS
+    return LoadLibrary (path);
+#else
+    return dlopen (path, RTLD_LAZY);
+#endif
+}
+
+
+int CloseLib (void *handle)
+{
+#ifdef _WINDOWS
+    BOOL fFreeResult;
+    fFreeResult = FreeLibrary (handle);
+    if(bRet == FALSE)
+        return -1;
+    else
+        return 0;
+#else
+    return dlclose (handle);
+#endif
+}
+
+
+void* GetLibFnAddress (void *handle, const char *name)
+{
+#ifdef _WINDOWS
+    return (void*) GetProcAddress( (HMODULE) handle, name );
+#else
+    return dlsym (handle, name);
+#endif
+}
 
 
 void SusiIoTMemFree_show (void)
 {
-    if(SusiIoTMemFree == NULL)
-        fprintf (stderr, "SusiIoTMemFree is NULL\n");
+    if(pSusiIoTMemFree == NULL)
+        fprintf (stderr, "pSusiIoTMemFree is NULL\n");
     else
-        fprintf (stderr, "SusiIoTMemFree is not NULL\n");
+        fprintf (stderr, "pSusiIoTMemFree is not NULL\n");
 }
 
 
@@ -50,11 +99,7 @@ int susi_load (void)
     int ret=0;
 
 // load library
-#ifdef WIN32
-    hGetProcIDDLL = LoadLibrary(DEF_SUSIIOT_LIB_NAME);
-#else
-    hGetProcIDDLL = dlopen(DEF_SUSIIOT_LIB_NAME, RTLD_NOW);
-#endif
+    hGetProcIDDLL = OpenLib (DEF_SUSIIOT_LIB_NAME);
 
     if (!hGetProcIDDLL) {
         fprintf (stderr, "could not load the dynamic library\n");
@@ -62,20 +107,20 @@ int susi_load (void)
     }
 
 // resolve function address
-    SusiIoTInitialize = (f_SusiIoTInitialize)GetProcAddress(hGetProcIDDLL, "SusiIoTInitialize");
-    if (!SusiIoTInitialize)
+    pSusiIoTInitialize = (PSusiIoTInitialize) GetLibFnAddress(hGetProcIDDLL, "SusiIoTInitialize");
+    if (!pSusiIoTInitialize)
         goto susi_load_fail;
 
-    SusiIoTUninitialize = (f_SusiIoTUninitialize)GetProcAddress(hGetProcIDDLL, "SusiIoTUninitialize");
-    if (!SusiIoTUninitialize)
+	pSusiIoTUninitialize = (PSusiIoTUninitialize) GetLibFnAddress(hGetProcIDDLL, "SusiIoTUninitialize");
+    if (!pSusiIoTUninitialize)
         goto susi_load_fail;
 
-    SusiIoTGetPFCapabilityString = (f_SusiIoTGetPFCapabilityString)GetProcAddress(hGetProcIDDLL, "SusiIoTGetPFCapabilityString");
-    if (!SusiIoTGetPFCapabilityString)
+	pSusiIoTGetPFCapabilityString = (PSusiIoTGetPFCapabilityString) GetLibFnAddress(hGetProcIDDLL, "SusiIoTGetPFCapabilityString");
+    if (!pSusiIoTGetPFCapabilityString)
         goto susi_load_fail;
 
-    SusiIoTMemFree = (f_SusiIoTMemFree)GetProcAddress(hGetProcIDDLL, "SusiIoTMemFree");
-    if (!SusiIoTMemFree)
+	pSusiIoTMemFree = (PSusiIoTMemFree) GetLibFnAddress(hGetProcIDDLL, "SusiIoTMemFree");
+    if (!pSusiIoTMemFree)
         goto susi_load_fail;
 
     fprintf (stderr, "load SusiIoT\n");
@@ -88,20 +133,31 @@ susi_load_fail:
 }
 
 
-void susi_unload (void)
+int susi_unload (void)
 {
-    BOOL fFreeResult;
+    int bRet = -1;
 
-    SusiIoTInitialize = NULL;
-    SusiIoTUninitialize = NULL;
-    SusiIoTGetPFCapabilityString = NULL;
-    SusiIoTMemFree = NULL;
+    if(pSusiIoTUninitialize)
+    {
+        SusiIoTStatus_t ret = pSusiIoTUninitialize();
+        if(ret == SUSIIOT_STATUS_SUCCESS)
+        {
+            bRet = 0;
+        }
+    }
+
+    pSusiIoTInitialize = NULL;
+    pSusiIoTUninitialize = NULL;
+    pSusiIoTGetPFCapabilityString = NULL;
+    pSusiIoTMemFree = NULL;
 
     if (hGetProcIDDLL)
     {
-        fFreeResult = FreeLibrary (hGetProcIDDLL);
+        CloseLib (hGetProcIDDLL);
         fprintf (stderr, "unload SusiIoT\n");
+        bRet = 0;
     }
+    return bRet;
 }
 
 
@@ -111,7 +167,7 @@ char* susi_get_capability (void)
     SusiIoTStatus_t status;
 
 // init
-    status = SusiIoTInitialize();
+    status = pSusiIoTInitialize();
     if (status != SUSIIOT_STATUS_SUCCESS)
         return IotPFIDataJsonStr;
 
@@ -120,9 +176,9 @@ char* susi_get_capability (void)
     {
         char * cpbStr = NULL;
 
-        if(SusiIoTGetPFCapabilityString != NULL)
+        if(pSusiIoTGetPFCapabilityString != NULL)
         {
-            cpbStr = (char *)SusiIoTGetPFCapabilityString();
+            cpbStr = (char *)pSusiIoTGetPFCapabilityString();
 
             //fprintf (stderr, "cpbStr = %s\n", cpbStr);
 
@@ -133,9 +189,9 @@ char* susi_get_capability (void)
 #endif
 
 #if 1   // Susi Free Mem
-            if(SusiIoTMemFree != NULL)
+            if(pSusiIoTMemFree != NULL)
             {
-                SusiIoTMemFree(cpbStr);
+                pSusiIoTMemFree(cpbStr);
             }
             else
             {
@@ -148,7 +204,7 @@ char* susi_get_capability (void)
     }
 
 // uninit
-    SusiIoTUninitialize();
+    pSusiIoTUninitialize();
 
     return IotPFIDataJsonStr;
 }
